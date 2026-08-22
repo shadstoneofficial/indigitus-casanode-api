@@ -1,6 +1,6 @@
 services:
   ubuntu:
-    image: node:latest
+    image: node@sha256:bde0dae02f2b12d2bce5ee72b2432f0e511767b7b2dc4dd3b064df11ae422fee
     container_name: casanode-api-deb
     working_dir: /package
     volumes:
