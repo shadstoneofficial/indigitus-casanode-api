@@ -43,16 +43,12 @@ class CertificateManager
 	 * @param validityYears - Number of years the certificate is valid for
 	 * @param certPath - Path for the certificate file
 	 * @param keyPath - Path for the key file
-	 * @param caCertPath - Optional path to the CA certificate file
-	 * @param caKeyPath - Optional path to the CA key file
 	 * @returns boolean - True if the certificate was successfully generated, false otherwise
 	 */
 	public async generate(
 		validityYears: number = 1,
 		certPath?: string,
-		keyPath?: string,
-		caCertPath?: string,
-		caKeyPath?: string
+		keyPath?: string
 	): Promise<boolean>
 	{
 		try
@@ -60,14 +56,14 @@ class CertificateManager
 			// Use custom paths if provided, otherwise default paths
 			const certFilePath = certPath || this.certFilePath;
 			const keyFilePath = keyPath || this.keyFilePath;
-			
+
 			// Get local IP address
 			const localIPAddress = getLocalIPAddress();
-			
+
 			// Ensure the directory for the certificate and key files exists
 			await fs.ensureDir(path.dirname(certFilePath));
 			await fs.ensureDir(path.dirname(keyFilePath));
-			
+
 			// If the certificate file exists, remove it
 			if (await fs.pathExists(certFilePath))
 				await fs.remove(certFilePath);
@@ -100,77 +96,25 @@ class CertificateManager
 			cert.setSubject(attrs);
 			cert.publicKey = publicKey;
 			
-			// Check if CA certificate and key are provided
-			if (caCertPath && caKeyPath)
-			{
-				// CA certificate and key are provided
-				// Load the CA private key from the .pem file
-				const caKeyPem = await fs.readFile(caKeyPath, 'utf8');
-				const caPrivateKey = forge.pki.privateKeyFromPem(caKeyPem);
-				
-				// Load the CA certificate
-				const caCertPem = await fs.readFile(caCertPath, 'utf8');
-				const caCert = forge.pki.certificateFromPem(caCertPem);
-				
-				Logger.info(`Using CA key from ${caKeyPath} for signing.`);
-				
-				// Set issuer to the CA certificate's subject (CA is the issuer)
-				cert.setIssuer(caCert.subject.attributes);
-				
-				// Add extensions
-				cert.setExtensions([
-					{ name: 'basicConstraints', cA: false },
-					{ name: 'keyUsage', digitalSignature: true, keyEncipherment: true, dataEncipherment: true, },
-					{ name: 'extKeyUsage', serverAuth: true, clientAuth: true, },
-					{ name: 'subjectAltName', altNames: [{ type: 7, ip: localIPAddress }] }
-				]);
-				
-				// Sign the server certificate with the CA's private key
-				cert.sign(caPrivateKey, forge.md.sha256.create());
-				
-				// Convert the server certificate to PEM format
-				const pemCert = forge.pki.certificateToPem(cert);
-				
-				// Write the server certificate to the file
-				await fs.writeFile(certFilePath, pemCert);
-				
-				// Write the server private key to the file
-				const privateKeyPem = forge.pki.privateKeyToPem(privateKey);
-				await fs.writeFile(keyFilePath, privateKeyPem);
-				
-				Logger.info('Server certificate has been generated and signed by the CA.');
-				return true;
-			}
-			// No CA provided, generate a self-signed certificate
-			else
-			{
-				// Set issuer to self
-				cert.setIssuer(attrs);
-				
-				// Add extensions
-				cert.setExtensions([
-					{ name: 'basicConstraints', cA: false },
-					{ name: 'keyUsage', digitalSignature: true, keyEncipherment: true, dataEncipherment: true, },
-					{ name: 'extKeyUsage', serverAuth: true, clientAuth: true, },
-					{ name: 'subjectAltName', altNames: [{ type: 7, ip: localIPAddress }] }
-				]);
-				
-				// Sign the certificate with its own private key
-				cert.sign(privateKey, forge.md.sha256.create());
-				
-				// Convert certificate to PEM format
-				const pemCert = forge.pki.certificateToPem(cert);
-				
-				// Write the certificate to the file
-				await fs.writeFile(certFilePath, pemCert);
-				
-				// Write the private key to the file
-				const privateKeyPem = forge.pki.privateKeyToPem(privateKey);
-				await fs.writeFile(keyFilePath, privateKeyPem);
-				
-				Logger.info('Self-signed certificate and key have been generated.');
-				return true;
-			}
+			// Generate a per-node self-signed certificate. Shared CA material is
+			// deliberately unsupported and must never be packaged with the API.
+			cert.setIssuer(attrs);
+			cert.setExtensions([
+				{ name: 'basicConstraints', cA: false },
+				{ name: 'keyUsage', digitalSignature: true, keyEncipherment: true, dataEncipherment: true, },
+				{ name: 'extKeyUsage', serverAuth: true, clientAuth: true, },
+				{ name: 'subjectAltName', altNames: [{ type: 7, ip: localIPAddress }] }
+			]);
+			cert.sign(privateKey, forge.md.sha256.create());
+
+			const pemCert = forge.pki.certificateToPem(cert);
+			await fs.writeFile(certFilePath, pemCert);
+
+			const privateKeyPem = forge.pki.privateKeyToPem(privateKey);
+			await fs.writeFile(keyFilePath, privateKeyPem);
+
+			Logger.info('Self-signed certificate and key have been generated.');
+			return true;
 		}
 		catch (error)
 		{
@@ -266,6 +210,6 @@ class CertificateManager
 const certificateManager = CertificateManager.getInstance();
 export default certificateManager;
 
-export const certificateGenerate = (validityYears = 1, certPath?: string, keyPath?: string, caCertPath?: string, caKeyPath?: string): Promise<boolean> => certificateManager.generate(validityYears, certPath, keyPath, caCertPath, caKeyPath);
+export const certificateGenerate = (validityYears = 1, certPath?: string, keyPath?: string): Promise<boolean> => certificateManager.generate(validityYears, certPath, keyPath);
 export const certificateInfo = (certPath?: string): CertificateInfo | null => certificateManager.info(certPath);
 export const certificateRemove = (certPath?: string, keyPath?: string): Promise<boolean> => certificateManager.remove(certPath, keyPath);
